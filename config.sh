@@ -1,9 +1,8 @@
-libtoolize
-aclocal
-autoheader
-autoconf
-automake
-#./configure --prefix=/home/alaveiw/study/autotoolsTEST/libjrpc/lib
+#libtoolize
+#aclocal
+#autoheader
+#autoconf
+#automake
 
 
 TOP_DIR=`pwd`
