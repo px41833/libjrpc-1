@@ -45,27 +45,25 @@
 #define JRPC_CODE_NOT_IMPLEMENTED	-32000
 
 #define JRPC_DEFAULT_EPOLL_USLEEP	1000
-#define JRPC_DEFAULT_TIMEOUT		3000
+#define JRPC_DEFAULT_TIMEOUT		10000	// 10secs
 #define JRPC_DEFAULT_RCVBUF_STREAM	4096
 #define JRPC_DEFAULT_RCVBUF_DGRAM	65535
 #define JRPC_DEFAULT_MAXQUEUE		IPSC_MAX_QUEUE_DEFAULT
 
 /* return codes */
-#define JRPC_SUCCESS			1
-#define JRPC_ERR_USER			0
-#define JRPC_ERR_GENERIC		-1
-#define JRPC_ERR_RECV			-2
-#define JRPC_ERR_SEND			-3
-#define JRPC_ERR_NORESULT		-4
+#define JRPC_SUCCESS			 0
+#define JRPC_ERR_USER			-1
+#define JRPC_ERR_GENERIC		-2
+#define JRPC_ERR_RECV			-3
+#define JRPC_ERR_SEND			-4
+#define JRPC_ERR_NORESULT		-5
 #define JRPC_ERR_UNKNOWN_REPLY_TYPE	-5
 
 // unix port
 #define JRPC_CONN_PORT_HNSD			1
 #define JRPC_CONN_PORT_TTAD			2
 #define JRPC_CONN_PORT_WOTD			3
-
-// jrpc method
-#define JRPC_METHOD_UPDATE_DEVINFO		"update.devinfo"
+#define JRPC_CONN_PORT_ZCD			4
 
 /* param availability flags */
 enum {
@@ -81,10 +79,10 @@ enum {
 };
 
 /* connection register callback, useful for joinable threads */
-typedef void (*jrpc_connreg_t)( void *ptr );
+typedef void (*jrpc_connreg_t) (void *ptr);
 
 /* method handler */
-typedef ssize_t (*jrpc_cb_t)( ipsc_t *ipsc, void *params, void *reqid );
+typedef ssize_t (*jrpc_cb_t) (ipsc_t *ipsc, json_t *jparams, json_t *jid);
 
 /* method structure */
 typedef struct jrpc_method_t {
@@ -120,9 +118,9 @@ typedef struct jrpc_t {
 typedef struct jrpc_req_t {
 	jrpc_conn_t conn;
 	char  *method;
-	json_t *params;
-	json_t *id;
-	json_t *res;
+	json_t *jparams;
+	json_t *jid;
+	json_t *jres;
 	jrpc_runtime_t rt;
 } jrpc_req_t;
 
@@ -147,15 +145,15 @@ typedef struct jrpc_req_t {
 
 /* client init macro */
 #define JRPC_CLIENT_DEFAULT {			\
-	.conn   = JRPC_DEFAULT_CONN,		\
-	.method = NULL,				\
-	.params = NULL,				\
-	.id     = NULL,				\
-	.res    = NULL				\
+	.conn    = JRPC_DEFAULT_CONN,		\
+	.method  = NULL,				\
+	.jparams = NULL,				\
+	.jid     = NULL,				\
+	.jres    = NULL				\
 }
 
-void jrpc_add_version( json_t *root, json_t *id );
-ssize_t jrpc_send_json( ipsc_t *ipsc, json_t *root );
+void jrpc_add_version( json_t *root, json_t *jid );
+ssize_t jrpc_send_json( ipsc_t *ipsc, json_t *jroot );
 ssize_t jrpc_recv_json( ipsc_t *ipsc, json_t **p );
 ssize_t jrpc_process( ipsc_t *ipsc );
 
@@ -166,12 +164,12 @@ void *jrpc_server( void *args );
 ssize_t jrpc_request( jrpc_req_t *req );
 
 /* to be used in method handlers */
-ssize_t jrpc_send( ipsc_t *ipsc, json_t *obj, json_t *id, int type );
+ssize_t jrpc_send_reply (ipsc_t *ipsc, json_t *jobj, json_t *jid, int type);
 
 /* error helpers */
-ssize_t jrpc_error( ipsc_t *ipsc, json_t *id, int code, const char *message );
-ssize_t jrpc_invalid_params( ipsc_t *ipsc, json_t *id );
-ssize_t jrpc_internal_error( ipsc_t *ipsc, json_t *id );
-ssize_t jrpc_not_implemented( ipsc_t *ipsc, json_t *id );
+ssize_t jrpc_error( ipsc_t *ipsc, json_t *jid, int code, const char *message );
+ssize_t jrpc_invalid_params( ipsc_t *ipsc, json_t *jid );
+ssize_t jrpc_internal_error( ipsc_t *ipsc, json_t *jid );
+ssize_t jrpc_not_implemented( ipsc_t *ipsc, json_t *jid );
 
 #endif /* _JRPC_H_ */

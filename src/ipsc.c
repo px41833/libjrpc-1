@@ -322,6 +322,56 @@ int ipsc_epoll_wait (ipsc_t *ipsc, int epfd, ssize_t (*cb)(ipsc_t *))
 	return 0;
 }
 
+int ipsc_epoll_wait_timeout (ipsc_t *ipsc, int epfd,
+		ssize_t (*cb)(ipsc_t *), int timeout)
+{
+	int i;
+	int pool = 0;
+	ipsc_t *client = NULL;
+	struct epoll_event events[ipsc->maxq];
+
+	pool = epoll_wait (epfd, events, ipsc->maxq, timeout);
+	if ( pool < 0 )
+		return -1;
+
+	for ( i = 0; i < pool; i++ ) {
+		/* new client connected */
+		if ( events[i].data.ptr == ipsc ) {
+			/* accept clients, create new fd and add to the pool */
+			while ( (client = ipsc_accept(ipsc)) ) {
+				if ( ipsc_set_nonblock( client ) ) {
+					ipsc_close( client );
+					continue;
+				}
+				if (ipsc_epoll_newfd (client, epfd))
+				{
+					ipsc_close( client );
+					continue;
+				}
+			}
+			continue;
+		}
+
+		/* explicitly close connection, SCTP fails without this */
+		// TODO : check
+		// if ( events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR) ) {
+		if (events[i].events & (EPOLLHUP | EPOLLERR)) {
+			ipsc_close (events[i].data.ptr);
+			continue;
+		}
+
+		/* incoming event on previously accepted connection */
+		if ( events[i].events & EPOLLIN ) {
+			if ( !events[i].data.ptr )
+				continue;
+			if ( (*cb)( events[i].data.ptr ) < 0 )
+				ipsc_close( events[i].data.ptr );
+		}
+	}
+
+	return 0;
+}
+
 void ipsc_close( ipsc_t *ipsc )
 {
 	if ( !ipsc )

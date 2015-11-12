@@ -16,37 +16,57 @@
 #include "jrpc.h"
 #include "dbg.h"
 
-static ssize_t jrpc_parse_error (ipsc_t *ipsc, json_t *id)
+static ssize_t jrpc_parse_error (ipsc_t *ipsc, json_t *jid)
 {
-	return jrpc_error (ipsc, id,
+	return jrpc_error (ipsc, jid,
 			   JRPC_CODE_PARSE_ERROR,
 			   JRPC_ERR_PARSE_ERROR );
 }
 
-static ssize_t jrpc_invalid_request (ipsc_t *ipsc, json_t *id)
+static ssize_t jrpc_invalid_request (ipsc_t *ipsc, json_t *jid)
 {
-	return jrpc_error (ipsc, id,
+	return jrpc_error (ipsc, jid,
 			   JRPC_CODE_INVALID_REQUEST,
 			   JRPC_ERR_INVALID_REQUEST);
 }
 
-static ssize_t jrpc_method_not_found (ipsc_t *ipsc, json_t *id)
+static ssize_t jrpc_method_not_found (ipsc_t *ipsc, json_t *jid)
 {
-	return jrpc_error (ipsc, id,
+	return jrpc_error (ipsc, jid,
 			   JRPC_CODE_METHOD_NOT_FOUND,
 			   JRPC_ERR_METHOD_NOT_FOUND);
 }
 
-static int jrpc_check_version (json_t *root)
+ssize_t jrpc_invalid_params (ipsc_t *ipsc, json_t *jid)
+{
+	return jrpc_error (ipsc, jid,
+			   JRPC_CODE_INVALID_PARAMS,
+			   JRPC_ERR_INVALID_PARAMS);
+}
+
+ssize_t jrpc_internal_error (ipsc_t *ipsc, json_t *jid)
+{
+	return jrpc_error (ipsc, jid,
+			   JRPC_CODE_INTERNAL_ERROR,
+			   JRPC_ERR_INTERNAL_ERROR);
+}
+
+ssize_t jrpc_not_implemented (ipsc_t *ipsc, json_t *jid)
+{
+	return jrpc_error (ipsc, jid,
+			   JRPC_CODE_NOT_IMPLEMENTED,
+			   JRPC_ERR_NOT_IMPLEMENTED);
+}
+
+static int jrpc_check_version (json_t *jroot)
 {
 	char *version = NULL;
 
-	if (json_unpack (root, "{s:s}", JRPC_KEY_JSONRPC, &version))
+	if (json_unpack (jroot, "{s:s}", JRPC_KEY_JSONRPC, &version))
 	{
 		return -1;
 	}
 
-	_dbg ("JRPC", "version : %s\n", version);
 	if (strncmp (version, JRPC_KEY_VERSION,
 		      strlen(JRPC_KEY_VERSION) + 1 ) )
 	{
@@ -56,16 +76,16 @@ static int jrpc_check_version (json_t *root)
 	return 0;
 }
 
-void jrpc_add_version (json_t *root, json_t *id)
+void jrpc_add_version (json_t *jroot, json_t *jid)
 {
-	json_object_set_new (root, JRPC_KEY_JSONRPC, json_string (JRPC_KEY_VERSION));
-	if (id)
-		json_object_set (root, JRPC_KEY_ID, id);
+	json_object_set_new (jroot, JRPC_KEY_JSONRPC, json_string (JRPC_KEY_VERSION));
+	if (jid)
+		json_object_set (jroot, JRPC_KEY_ID, jid);
 	else
-		json_object_set_new (root, JRPC_KEY_ID, json_null());
+		json_object_set_new (jroot, JRPC_KEY_ID, json_null());
 }
 
-ssize_t jrpc_send_json( ipsc_t *ipsc, json_t *root )
+ssize_t jrpc_send_json( ipsc_t *ipsc, json_t *jroot )
 {
 	char *buf = NULL;
 	ssize_t sb = 0;
@@ -77,8 +97,8 @@ ssize_t jrpc_send_json( ipsc_t *ipsc, json_t *root )
 		rt = ((jrpc_req_t *)ipsc->cb_args)->rt;
 	}
 
-	// if ((buf = json_dumps (root, JSON_COMPACT)) == NULL)
-	if ((buf = json_dumps (root, JSON_INDENT(2))) == NULL)
+	if ((buf = json_dumps (jroot, JSON_COMPACT)) == NULL)
+//	if ((buf = json_dumps (jroot, JSON_INDENT(2))) == NULL)
 	{
 		sb = JRPC_ERR_GENERIC;
 		return sb;
@@ -94,7 +114,7 @@ ssize_t jrpc_send_json( ipsc_t *ipsc, json_t *root )
 	return sb;
 }
 
-ssize_t jrpc_recv_json (ipsc_t *ipsc, json_t **p)
+ssize_t jrpc_recv_json (ipsc_t *ipsc, json_t **jp)
 {
 	char *buf = NULL;
 	size_t buflen = 0;
@@ -141,7 +161,9 @@ ssize_t jrpc_recv_json (ipsc_t *ipsc, json_t **p)
 	if ( rb < 2 )
 		rb = 0;
 
-	jobj = json_loadb (buf, (size_t)rb, 0, &error);
+	// TODO : ????
+	// jobj = json_loadb (buf, (size_t)rb, JSON_DISABLE_EOF_CHECK, &error);
+	jobj = json_loads (buf, JSON_DISABLE_EOF_CHECK, &error);
 	if (!jobj)
 	{
 		rb = -1;
@@ -162,10 +184,9 @@ ssize_t jrpc_recv_json (ipsc_t *ipsc, json_t **p)
 
 	//////////////////////////////////////
 
-
 	free (buf);
 
-	*p = jobj;
+	*jp = jobj;
 	return rb;
 }
 
@@ -174,17 +195,16 @@ ssize_t jrpc_process( ipsc_t *ipsc )
 	int i, idx;
 	size_t rb;
 	size_t sb = 0;
-	json_t *p = NULL;
-	json_t *params = NULL;
-	json_t *id = NULL;
+	json_t *jp = NULL;
+	json_t *jparams = NULL;
+	json_t *jid = NULL;
 	jrpc_cb_t cb;
 	jrpc_t *jrpc = (jrpc_t *)ipsc->cb_args;
 	char *method = NULL;
 
 	ipsc->flags |= IPSC_FLAG_SERVER;
 
-	rb = jrpc_recv_json (ipsc, &p);
-
+	rb = jrpc_recv_json (ipsc, &jp);
 	if ( rb < 2 )
 	{
 		syslog( LOG_WARNING, "jrpc_process(recv): %m (%li)", rb );
@@ -192,25 +212,26 @@ ssize_t jrpc_process( ipsc_t *ipsc )
 		goto ret;
 	}
 
-	json_unpack (p, "{s?:o}", JRPC_KEY_ID, &id);
+	json_unpack (jp, "{s?:o}", JRPC_KEY_ID, &jid);
 
 #ifndef JRPC_LITE
 	/* check version string if we use standart fields */
-	if (jrpc_check_version (p))
+	if (jrpc_check_version (jp))
 	{
-		sb = jrpc_invalid_request (ipsc, id);
+		sb = jrpc_invalid_request (ipsc, jid);
 		goto ret;
 	}
 #endif
 
 	/* send error back if 'method' key is not found */
-	if (json_unpack (p, "{s:s}", JRPC_KEY_METHOD, &method))
+	if (json_unpack (jp, "{s:s}", JRPC_KEY_METHOD, &method))
 	{
-		sb = jrpc_invalid_request (ipsc, id);
+		sb = jrpc_invalid_request (ipsc, jid);
 		goto ret;
 	}
 
-	for ( i = 0; jrpc->methods[i].name; i++ ) {
+	for ( i = 0; jrpc->methods[i].name; i++ )
+	{
 		if ( strncmp (method, jrpc->methods[i].name,
 			      strlen(jrpc->methods[i].name) + 1 ) )
 			continue;
@@ -218,15 +239,18 @@ ssize_t jrpc_process( ipsc_t *ipsc )
 		switch ( jrpc->methods[i].params )
 		{
 		case JRPC_CB_HAS_PARAMS:
-			if (json_unpack (p, "{s:o}", JRPC_KEY_PARAMS, &params))
+			if (json_unpack (jp, "{s:o}", JRPC_KEY_PARAMS, &jparams))
 			{
-				sb = jrpc_invalid_params (ipsc, id);
+				sb = jrpc_invalid_params (ipsc, jid);
 				goto ret;
 			}
-
 			break;
 		case JRPC_CB_OPT_PARAMS:
-			json_unpack (p, "{s?:o}", JRPC_KEY_PARAMS, &params);
+			if (json_unpack (jp, "{s?:o}", JRPC_KEY_PARAMS, &jparams))
+			{
+				sb = jrpc_invalid_params (ipsc, jid);
+				goto ret;
+			}
 			break;
 		case JRPC_CB_NO_PARAMS:
 		default:
@@ -235,24 +259,24 @@ ssize_t jrpc_process( ipsc_t *ipsc )
 
 		if (!jrpc->methods[i].handlers)
 		{
-			sb = jrpc_not_implemented (ipsc, id);
+			sb = jrpc_not_implemented (ipsc, jid);
 			goto ret;
 		}
 
 		if (!jrpc->methods[i].handlers[0])
 		{
-			sb = jrpc_not_implemented (ipsc, id);
+			sb = jrpc_not_implemented (ipsc, jid);
 			goto ret;
 		}
 
 		for (idx = 0; jrpc->methods[i].handlers[idx]; idx++)
 		{
 			cb = jrpc->methods[i].handlers[idx];
-			sb = cb (ipsc, params, id);
+			sb = cb (ipsc, jparams, jid);
 			if ( sb == 0 )
 				break;
 			if ( sb < 0 ) {
-				sb = jrpc_internal_error (ipsc, id);
+				sb = jrpc_internal_error (ipsc, jid);
 				break;
 			}
 		}
@@ -261,13 +285,13 @@ ssize_t jrpc_process( ipsc_t *ipsc )
 	}
 
 	/* no method defined, send standard error */
-	sb = jrpc_method_not_found (ipsc, id);
+	sb = jrpc_method_not_found (ipsc, jid);
 
 ret:
-	if ( sb < 0 )
-		syslog( LOG_WARNING, "jrpc_process(recv|send): %m (%li)", sb );
+	if (sb < 0)
+		syslog (LOG_WARNING, "jrpc_process(recv|send): %m (%li)", sb);
 
-	json_decref (p);
+	json_decref (jp);
 
 	return sb;
 }
@@ -319,8 +343,8 @@ ssize_t jrpc_request( jrpc_req_t *req )
 
 	ssize_t sb = 0;
 	ssize_t rb = 0;
-	json_t *p;
-	json_t *root = NULL;;
+	json_t *jp = NULL;;
+	json_t *jroot = NULL;;
 	ipsc_t *ipsc = NULL;
 
 	ipsc = ipsc_connect( req->conn.port );
@@ -330,26 +354,26 @@ ssize_t jrpc_request( jrpc_req_t *req )
 		goto exit;
 	}
 
-	root = json_object ();
+	jroot = json_object ();
 
 #ifndef JRPC_LITE
-	jrpc_add_version (root, req->id);
+	jrpc_add_version (jroot, req->jid);
 #endif
 
-	json_object_set_new (root, JRPC_KEY_METHOD, json_string (req->method));
-	if (req->params)
-		json_object_set_new (root, JRPC_KEY_PARAMS, req->params);
+	json_object_set_new (jroot, JRPC_KEY_METHOD, json_string (req->method));
+	if (req->jparams)
+		json_object_set_new (jroot, JRPC_KEY_PARAMS, req->jparams);
 
 	/* send request */
 	ipsc->cb_args = (void *)req;
-	sb = jrpc_send_json (ipsc, root);
+	sb = jrpc_send_json (ipsc, jroot);
 	if ( sb < 2 ) {
 		sb = JRPC_ERR_SEND;
 		goto exit;
 	}
 
 	/* get reply */
-	rb = jrpc_recv_json (ipsc, &p);
+	rb = jrpc_recv_json (ipsc, &jp);
 	if ( rb < 2 ) {
 		syslog(LOG_WARNING, "jrpc_process(recv): %m (%li)", rb);
 //		_dbg ("LIBJRPC", "jrpc_process(recv): %m (%li)", rb);
@@ -358,35 +382,34 @@ ssize_t jrpc_request( jrpc_req_t *req )
 	}
 
 	sb = JRPC_SUCCESS;
-	req->res = json_copy (json_object_get (p, JRPC_KEY_RESULT));
-	if (req->res== NULL)
+	req->jres = json_copy (json_object_get (jp, JRPC_KEY_RESULT));
+	if (req->jres == NULL)
 	{
 		sb = JRPC_ERR_NORESULT;
 
-		req->res = json_copy(json_object_get (p, JRPC_KEY_ERROR));
-		if (req->res== NULL)
+		req->jres = json_copy(json_object_get (jp, JRPC_KEY_ERROR));
+		if (req->jres == NULL)
 		{
 			sb = JRPC_ERR_USER;
 		}
 	}
 
-
 exit:
 	ipsc_close (ipsc);
-	json_decref (p);
-	json_decref (root);
+	json_decref (jp);
+	json_decref (jroot);
 
 	return sb;
 }
 
-ssize_t jrpc_send( ipsc_t *ipsc, json_t *obj, json_t *id, int type )
+ssize_t jrpc_send_reply ( ipsc_t *ipsc, json_t *jobj, json_t *jid, int type )
 {
-	if ( !ipsc || !obj )
+	if ( !ipsc || !jobj )
 		return JRPC_ERR_GENERIC;
 
 	ssize_t sb = 0;
 	char msg_type[8]; /* either "error" or "result" */
-	json_t *root = NULL;
+	json_t *jroot = NULL;
 
 	switch (type)
 	{
@@ -401,28 +424,27 @@ ssize_t jrpc_send( ipsc_t *ipsc, json_t *obj, json_t *id, int type )
 		goto exit;
 	}
 
-	root = json_object ();
+	jroot = json_object ();
 
 #ifndef JRPC_LITE
-	jrpc_add_version (root, id);
+	jrpc_add_version (jroot, jid);
 #endif
 
-	if (json_object_set (root, msg_type, obj))
+	if (json_object_set (jroot, msg_type, jobj))
 	{
 		sb = JRPC_ERR_GENERIC;
 		goto exit;
 	}
 
-	sb = jrpc_send_json( ipsc, root );
+	sb = jrpc_send_json (ipsc, jroot);
 
 exit:
-	json_decref (obj);
-	json_decref (root);
+	json_decref (jroot);
 
 	return sb;
 }
 
-ssize_t jrpc_error (ipsc_t *ipsc, json_t *id, int code, const char *message )
+ssize_t jrpc_error (ipsc_t *ipsc, json_t *jid, int code, const char *message )
 {
 	json_t *err;
 	err = json_object ();
@@ -430,26 +452,6 @@ ssize_t jrpc_error (ipsc_t *ipsc, json_t *id, int code, const char *message )
 	json_object_set_new (err, JRPC_KEY_ERROR_CODE, json_integer (code));
 	json_object_set_new (err, JRPC_KEY_ERROR_TEXT, json_string (message));
 
-	return jrpc_send( ipsc, err, id, JRPC_REPLY_TYPE_ERROR );
+	return jrpc_send_reply ( ipsc, err, jid, JRPC_REPLY_TYPE_ERROR );
 }
 
-ssize_t jrpc_invalid_params (ipsc_t *ipsc, json_t *id)
-{
-	return jrpc_error (ipsc, id,
-			   JRPC_CODE_INVALID_PARAMS,
-			   JRPC_ERR_INVALID_PARAMS);
-}
-
-ssize_t jrpc_internal_error (ipsc_t *ipsc, json_t *id)
-{
-	return jrpc_error (ipsc, id,
-			   JRPC_CODE_INTERNAL_ERROR,
-			   JRPC_ERR_INTERNAL_ERROR);
-}
-
-ssize_t jrpc_not_implemented (ipsc_t *ipsc, json_t *id)
-{
-	return jrpc_error (ipsc, id,
-			   JRPC_CODE_NOT_IMPLEMENTED,
-			   JRPC_ERR_NOT_IMPLEMENTED);
-}

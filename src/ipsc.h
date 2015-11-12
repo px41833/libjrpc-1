@@ -45,6 +45,8 @@ ssize_t ipsc_recv( ipsc_t *ipsc, void *buf,
 		   size_t buflen, unsigned int timeout );
 int ipsc_epoll_init( ipsc_t *ipsc );
 int ipsc_epoll_wait( ipsc_t *ipsc, int epfd, ssize_t (*cb)(ipsc_t *ipsc) );
+int ipsc_epoll_wait_timeout (ipsc_t *ipsc, int epfd, ssize_t (*cb)(ipsc_t *),
+		int timeout);
 void ipsc_close( ipsc_t *ipsc );
 
 #endif /* _LIBIPSC_H_ */
