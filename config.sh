@@ -17,6 +17,10 @@ export RANLIB=$CROSS_COMPILE-ranlib
 #export OBJDUMP=$CROSS_COMPILE-objdump
 export STRIP=$CROSS_COMPILE-strip
 
+export STAGING_DIR=/home/gomma/projects/openwrt/staging_dir
+export CFLAGS=-I$STAGING_DIR/target-mipsel_24kec+dsp_musl-1.1.11/usr/include
+export LDFLAGS=-L$STAGING_DIR/target-mipsel_24kec+dsp_musl-1.1.11/usr/lib -lgansson
+
 ./configure \
     --host=mipsel-linux \
     --build=i686-pc-linux-gnu \
