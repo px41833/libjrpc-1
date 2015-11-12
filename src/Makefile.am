@@ -17,7 +17,9 @@ libjrpc_la_LDFLAGS = -no-undefined \
 
 libjrpc_la_CFLAGS =
 
-libjrpc_la_LIBADD = -ljansson
+libjrpc_la_LIBADD =
+
+# libjrpc_la_LIBADD = -ljansson
 
 #if OS_WIN32
 #libjrpc_la_LIBADD = -lwsock32
@@ -29,6 +31,7 @@ libjrpc_la_LIBADD = -ljansson
 
 # Header files to install
 #libjrpcincludedir = $(includedir)/jrpc
+
 
 pkginclude_HEADERS = jrpc.h ipsc.h
 
